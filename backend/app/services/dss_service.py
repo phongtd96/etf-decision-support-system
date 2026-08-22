@@ -54,6 +54,35 @@ class SmartRanking:
     rankings: list[SmartRankingItem]
 
 
+@dataclass(frozen=True)
+class SensitivityComparisonItem:
+    symbol: str
+    balanced_score: float
+    balanced_rank: int
+    growth_score: float
+    growth_rank: int
+    risk_averse_score: float
+    risk_averse_rank: int
+    growth_rank_change: int
+    risk_averse_rank_change: int
+
+
+@dataclass(frozen=True)
+class SensitivityStabilitySummary:
+    top_etf_stable: bool
+    max_absolute_rank_change: int
+    growth_changed_count: int
+    risk_averse_changed_count: int
+
+
+@dataclass(frozen=True)
+class SmartSensitivityAnalysis:
+    as_of_date: date
+    scenario_rankings: dict[str, SmartRanking]
+    comparisons: list[SensitivityComparisonItem]
+    stability_summary: SensitivityStabilitySummary
+
+
 class DSSDataError(ValueError):
     pass
 
@@ -71,6 +100,30 @@ SMART_CRITERIA = [
     SmartCriterion("max_drawdown_60d", 0.15, CriterionType.COST),
     SmartCriterion("avg_volume_20d", 0.10, CriterionType.BENEFIT),
 ]
+
+SMART_WEIGHT_PROFILES = {
+    "BALANCED": {
+        "technical_momentum": 0.30,
+        "return_20d": 0.25,
+        "volatility_20d": 0.20,
+        "max_drawdown_60d": 0.15,
+        "avg_volume_20d": 0.10,
+    },
+    "GROWTH": {
+        "technical_momentum": 0.35,
+        "return_20d": 0.35,
+        "volatility_20d": 0.10,
+        "max_drawdown_60d": 0.10,
+        "avg_volume_20d": 0.10,
+    },
+    "RISK_AVERSE": {
+        "technical_momentum": 0.20,
+        "return_20d": 0.15,
+        "volatility_20d": 0.30,
+        "max_drawdown_60d": 0.25,
+        "avg_volume_20d": 0.10,
+    },
+}
 
 
 def validate_smart_weights() -> None:
@@ -201,6 +254,160 @@ def calculate_smart_ranking(alternatives: list[SmartAlternative]) -> SmartRankin
     )
 
 
+def validate_weight_profile(weights: dict[str, float]) -> None:
+    required_criteria = {criterion.name for criterion in SMART_CRITERIA}
+    provided_criteria = set(weights)
+    missing_criteria = required_criteria - provided_criteria
+    if missing_criteria:
+        raise DSSDataError(f"Missing SMART weights for criteria: {sorted(missing_criteria)}")
+
+    negative_criteria = [
+        name for name in required_criteria if weights[name] < 0
+    ]
+    if negative_criteria:
+        raise DSSDataError(
+            f"SMART weights must be non-negative: {sorted(negative_criteria)}"
+        )
+
+    total_weight = sum(weights[name] for name in required_criteria)
+    if not np.isclose(total_weight, 1.0):
+        raise DSSDataError(f"SMART weights must sum to 1.0, got {total_weight}.")
+
+
+def calculate_smart_ranking_from_utilities(
+    base_ranking: SmartRanking,
+    weights: dict[str, float],
+) -> SmartRanking:
+    validate_weight_profile(weights)
+    if not base_ranking.rankings:
+        raise DSSDataError("No ETF utilities available for SMART sensitivity analysis.")
+
+    required_criteria = {criterion.name for criterion in SMART_CRITERIA}
+    ranking_items = []
+    for item in base_ranking.rankings:
+        missing_utilities = required_criteria - set(item.utilities)
+        if missing_utilities:
+            raise DSSDataError(
+                f"Missing SMART utilities for {item.symbol}: {sorted(missing_utilities)}"
+            )
+
+        contributions = {
+            criterion.name: item.utilities[criterion.name] * weights[criterion.name] * 100
+            for criterion in SMART_CRITERIA
+        }
+        smart_score = round(sum(contributions.values()), 2)
+        ranking_items.append(
+            SmartRankingItem(
+                rank=0,
+                symbol=item.symbol,
+                date=item.date,
+                raw_values=item.raw_values,
+                utilities=item.utilities,
+                weighted_contributions=contributions,
+                smart_score=max(0.0, min(100.0, smart_score)),
+                reasons=item.reasons,
+            )
+        )
+
+    sorted_items = sorted(ranking_items, key=lambda item: (-item.smart_score, item.symbol))
+    ranked_items = [
+        SmartRankingItem(
+            rank=index,
+            symbol=item.symbol,
+            date=item.date,
+            raw_values=item.raw_values,
+            utilities=item.utilities,
+            weighted_contributions=item.weighted_contributions,
+            smart_score=item.smart_score,
+            reasons=item.reasons,
+        )
+        for index, item in enumerate(sorted_items, start=1)
+    ]
+    return SmartRanking(as_of_date=base_ranking.as_of_date, rankings=ranked_items)
+
+
+def calculate_sensitivity_analysis_from_ranking(
+    base_ranking: SmartRanking,
+) -> SmartSensitivityAnalysis:
+    scenario_rankings = {
+        name: calculate_smart_ranking_from_utilities(base_ranking, weights)
+        for name, weights in SMART_WEIGHT_PROFILES.items()
+    }
+    comparisons = build_sensitivity_comparisons(scenario_rankings)
+    stability_summary = build_stability_summary(scenario_rankings, comparisons)
+    return SmartSensitivityAnalysis(
+        as_of_date=base_ranking.as_of_date,
+        scenario_rankings=scenario_rankings,
+        comparisons=comparisons,
+        stability_summary=stability_summary,
+    )
+
+
+def build_sensitivity_comparisons(
+    scenario_rankings: dict[str, SmartRanking],
+) -> list[SensitivityComparisonItem]:
+    required_scenarios = {"BALANCED", "GROWTH", "RISK_AVERSE"}
+    missing_scenarios = required_scenarios - set(scenario_rankings)
+    if missing_scenarios:
+        raise DSSDataError(f"Missing SMART scenarios: {sorted(missing_scenarios)}")
+
+    ranking_by_scenario = {
+        name: {item.symbol: item for item in ranking.rankings}
+        for name, ranking in scenario_rankings.items()
+    }
+    balanced_items = ranking_by_scenario["BALANCED"]
+    comparisons = []
+    for symbol in sorted(balanced_items):
+        balanced_item = balanced_items[symbol]
+        growth_item = ranking_by_scenario["GROWTH"][symbol]
+        risk_averse_item = ranking_by_scenario["RISK_AVERSE"][symbol]
+        comparisons.append(
+            SensitivityComparisonItem(
+                symbol=symbol,
+                balanced_score=balanced_item.smart_score,
+                balanced_rank=balanced_item.rank,
+                growth_score=growth_item.smart_score,
+                growth_rank=growth_item.rank,
+                risk_averse_score=risk_averse_item.smart_score,
+                risk_averse_rank=risk_averse_item.rank,
+                growth_rank_change=balanced_item.rank - growth_item.rank,
+                risk_averse_rank_change=balanced_item.rank - risk_averse_item.rank,
+            )
+        )
+    return comparisons
+
+
+def build_stability_summary(
+    scenario_rankings: dict[str, SmartRanking],
+    comparisons: list[SensitivityComparisonItem],
+) -> SensitivityStabilitySummary:
+    top_symbols = {
+        ranking.rankings[0].symbol
+        for ranking in scenario_rankings.values()
+        if ranking.rankings
+    }
+    max_absolute_rank_change = max(
+        (
+            max(
+                abs(item.growth_rank_change),
+                abs(item.risk_averse_rank_change),
+            )
+            for item in comparisons
+        ),
+        default=0,
+    )
+    return SensitivityStabilitySummary(
+        top_etf_stable=len(top_symbols) == 1,
+        max_absolute_rank_change=max_absolute_rank_change,
+        growth_changed_count=sum(
+            1 for item in comparisons if item.growth_rank_change != 0
+        ),
+        risk_averse_changed_count=sum(
+            1 for item in comparisons if item.risk_averse_rank_change != 0
+        ),
+    )
+
+
 def build_dss_reasons(raw_values: dict[str, float], utilities: dict[str, float]) -> list[str]:
     reasons = []
     if utilities["technical_momentum"] >= 0.75:
@@ -296,6 +503,15 @@ def calculate_smart_ranking_from_database(
 ) -> SmartRanking:
     alternatives = load_smart_alternatives(db_session, symbols, as_of_date)
     return calculate_smart_ranking(alternatives)
+
+
+def calculate_sensitivity_analysis_from_database(
+    db_session: Session,
+    symbols: list[str] | None = None,
+    as_of_date: date | None = None,
+) -> SmartSensitivityAnalysis:
+    base_ranking = calculate_smart_ranking_from_database(db_session, symbols, as_of_date)
+    return calculate_sensitivity_analysis_from_ranking(base_ranking)
 
 
 def load_price_data_for_etf(
