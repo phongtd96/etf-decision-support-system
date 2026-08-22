@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.api.routes import analysis, etfs, recommendations
+from app.api.routes import analysis, dss, etfs, recommendations
 from app.core.config import settings
 
 app = FastAPI(
@@ -10,6 +10,7 @@ app = FastAPI(
 
 app.include_router(etfs.router, prefix="/etfs", tags=["ETFs"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["Analysis"])
+app.include_router(dss.router, prefix="/api/dss", tags=["DSS"])
 app.include_router(
     recommendations.router,
     prefix="/recommendations",
