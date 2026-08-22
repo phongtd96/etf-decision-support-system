@@ -9,7 +9,7 @@ app = FastAPI(
 )
 
 app.include_router(etfs.router, prefix="/etfs", tags=["ETFs"])
-app.include_router(analysis.router, prefix="/analysis", tags=["Analysis"])
+app.include_router(analysis.router, prefix="/api/analysis", tags=["Analysis"])
 app.include_router(
     recommendations.router,
     prefix="/recommendations",

@@ -7,9 +7,14 @@ import pytest
 from app.services.analysis_service import (
     INDICATOR_COLUMNS,
     TechnicalIndicatorError,
+    TechnicalAnalysisNotFoundError,
+    TechnicalSignal,
     calculate_technical_indicators,
+    get_latest_technical_analysis,
+    map_score_to_signal,
     normalize_price_history,
     save_technical_indicators,
+    score_technical_indicators,
 )
 
 
@@ -139,3 +144,97 @@ def test_normalize_price_history_requires_close_values() -> None:
 
     with pytest.raises(TechnicalIndicatorError, match="Missing close"):
         normalize_price_history(price_df)
+
+
+def test_bullish_sma_scoring() -> None:
+    result = score_technical_indicators(
+        sma_20=20,
+        sma_50=10,
+        rsi_14=60,
+        macd=2,
+        macd_signal=1,
+        volatility_20=0.15,
+    )
+
+    assert result.technical_score == 100
+    assert result.technical_signal == TechnicalSignal.BULLISH
+    assert any("SMA20 is above SMA50" in reason for reason in result.reasons)
+
+
+def test_bearish_sma_scoring() -> None:
+    result = score_technical_indicators(
+        sma_20=10,
+        sma_50=20,
+        rsi_14=60,
+        macd=2,
+        macd_signal=1,
+        volatility_20=0.15,
+    )
+
+    assert result.technical_score == 70
+    assert result.technical_signal == TechnicalSignal.NEUTRAL
+    assert any("SMA20 is below SMA50" in reason for reason in result.reasons)
+
+
+def test_rsi_scoring_ranges() -> None:
+    strong = score_technical_indicators(20, 10, 60, 2, 1, 0.15)
+    moderate = score_technical_indicators(20, 10, 40, 2, 1, 0.15)
+    overbought = score_technical_indicators(20, 10, 75, 2, 1, 0.15)
+    oversold = score_technical_indicators(20, 10, 25, 2, 1, 0.15)
+
+    assert strong.technical_score > moderate.technical_score
+    assert moderate.technical_score > overbought.technical_score
+    assert overbought.technical_score > oversold.technical_score
+
+
+def test_macd_scoring() -> None:
+    bullish = score_technical_indicators(20, 10, 60, 2.0, 1.0, 0.15)
+    neutral = score_technical_indicators(20, 10, 60, 1.0, 1.0, 0.15)
+    bearish = score_technical_indicators(20, 10, 60, 0.5, 1.0, 0.15)
+
+    assert bullish.technical_score > neutral.technical_score
+    assert neutral.technical_score > bearish.technical_score
+
+
+def test_volatility_scoring() -> None:
+    low = score_technical_indicators(20, 10, 60, 2, 1, 0.15)
+    moderate = score_technical_indicators(20, 10, 60, 2, 1, 0.25)
+    high = score_technical_indicators(20, 10, 60, 2, 1, 0.45)
+
+    assert low.technical_score > moderate.technical_score
+    assert moderate.technical_score > high.technical_score
+
+
+def test_final_score_remains_within_0_to_100() -> None:
+    result = score_technical_indicators(
+        sma_20=None,
+        sma_50=None,
+        rsi_14=None,
+        macd=None,
+        macd_signal=None,
+        volatility_20=None,
+    )
+
+    assert 0 <= result.technical_score <= 100
+
+
+def test_signal_mapping_thresholds() -> None:
+    assert map_score_to_signal(75) == TechnicalSignal.BULLISH
+    assert map_score_to_signal(74.99) == TechnicalSignal.NEUTRAL
+    assert map_score_to_signal(50) == TechnicalSignal.NEUTRAL
+    assert map_score_to_signal(49.99) == TechnicalSignal.BEARISH
+
+
+def test_missing_indicator_handling() -> None:
+    class FakeSession:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def scalar(self, statement):
+            self.calls += 1
+            if self.calls == 1:
+                return type("FakeEtf", (), {"id": 1, "symbol": "E1VFVN30"})()
+            return None
+
+    with pytest.raises(TechnicalAnalysisNotFoundError, match="No technical indicator"):
+        get_latest_technical_analysis(FakeSession(), "E1VFVN30")
