@@ -7,6 +7,7 @@ pydantic==2.10.4
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
 pandas==2.3.3
+numpy==2.2.6
 vnstock==4.0.7
 pytest==8.3.4
 httpx==0.28.1
