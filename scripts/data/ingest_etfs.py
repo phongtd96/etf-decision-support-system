@@ -10,18 +10,8 @@ if str(PROJECT_ROOT) not in sys.path:
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from sqlalchemy import select
-
 from app.db.session import SessionLocal
-from app.models.etf import Etf
-from app.services.data_service import (
-    DATA_SOURCE,
-    fetch_etf_history,
-    filter_price_date_range,
-    normalize_price_data,
-    save_price_history,
-    validate_price_data,
-)
+from app.services.market_data_update_service import ingest_all_price_history
 from scripts.data.seed_etfs import SUPPORTED_ETFS, ensure_supported_etfs
 
 
@@ -39,28 +29,17 @@ def main() -> None:
             symbol = item["symbol"]
 
             try:
-                etf = db_session.scalar(select(Etf).where(Etf.symbol == symbol))
-                if etf is None:
-                    raise RuntimeError(f"ETF not found after seeding: {symbol}")
-
-                provider_df = fetch_etf_history(symbol=symbol, start_date=START_DATE)
-                normalized_df = normalize_price_data(provider_df)
-                filtered_df = filter_price_date_range(
-                    normalized_df,
+                summaries = ingest_all_price_history(
+                    db_session,
                     start_date=START_DATE,
-                )
-                validate_price_data(filtered_df)
-                stats = save_price_history(
-                    db_session=db_session,
-                    etf=etf,
-                    df=filtered_df,
-                    data_source=DATA_SOURCE,
+                    symbols=[symbol],
                 )
                 db_session.commit()
+                summary = summaries[0]
 
-                total_processed += stats.processed_rows
+                total_processed += summary.changed_rows
                 summary_rows.append(
-                    (symbol, len(provider_df), stats.processed_rows, "OK")
+                    (symbol, summary.fetched_rows, summary.changed_rows, "OK")
                 )
             except Exception as exc:
                 db_session.rollback()

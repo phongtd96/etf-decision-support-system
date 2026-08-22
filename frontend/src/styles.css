@@ -130,6 +130,72 @@ a {
   padding: 22px;
 }
 
+.dashboard-actions {
+  background: #ffffff;
+  border: 1px solid #dce3ef;
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 18px 22px;
+}
+
+.dashboard-actions h2 {
+  margin: 0;
+  color: #111827;
+  font-size: 18px;
+}
+
+.dashboard-actions p {
+  margin: 6px 0 0;
+  color: #667085;
+  font-size: 14px;
+}
+
+.primary-button {
+  border: 0;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 11px 16px;
+  white-space: nowrap;
+}
+
+.primary-button:disabled {
+  background: #93a4bd;
+  cursor: not-allowed;
+}
+
+.update-message {
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 12px 14px;
+}
+
+.update-message.success {
+  background: #ecfdf3;
+  border: 1px solid #abefc6;
+  color: #027a48;
+}
+
+.update-message.info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1d4ed8;
+}
+
+.update-message.error {
+  background: #fef3f2;
+  border: 1px solid #fecdca;
+  color: #b42318;
+}
+
 .panel-heading {
   display: flex;
   justify-content: space-between;
@@ -427,6 +493,11 @@ a {
   }
 
   .top-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .dashboard-actions {
     align-items: flex-start;
     flex-direction: column;
   }

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import analysis, dss, etfs, recommendations
+from app.api.routes import analysis, data, dss, etfs, recommendations
 from app.core.config import settings
 
 app = FastAPI(
@@ -13,13 +13,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
     allow_credentials=True,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
 app.include_router(etfs.router, prefix="/api/etfs", tags=["ETFs"])
 app.include_router(analysis.router, prefix="/api/analysis", tags=["Analysis"])
 app.include_router(dss.router, prefix="/api/dss", tags=["DSS"])
+app.include_router(data.router, prefix="/api/data", tags=["Data"])
 app.include_router(
     recommendations.router,
     prefix="/recommendations",
