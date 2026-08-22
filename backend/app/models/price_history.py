@@ -2,7 +2,15 @@ from datetime import date
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import BigInteger, Date, ForeignKey, Index, Numeric, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Date,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -27,5 +35,6 @@ class PriceHistory(Base):
     close: Mapped[Decimal | None] = mapped_column(Numeric)
     adjusted_close: Mapped[Decimal | None] = mapped_column(Numeric)
     volume: Mapped[int | None] = mapped_column(BigInteger)
+    data_source: Mapped[str] = mapped_column(String(50), nullable=False)
 
     etf: Mapped["Etf"] = relationship(back_populates="price_history")
