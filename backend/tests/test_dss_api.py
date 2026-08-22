@@ -6,7 +6,16 @@ from fastapi.testclient import TestClient
 from app.api.dependencies import get_db
 from app.api.routes import dss as dss_route
 from app.main import app
-from app.services.dss_service import DSSDataError, SMART_CRITERIA, SmartRanking, SmartRankingItem
+from app.services.dss_service import (
+    DSSDataError,
+    SMART_CRITERIA,
+    SMART_WEIGHT_PROFILES,
+    SensitivityComparisonItem,
+    SensitivityStabilitySummary,
+    SmartRanking,
+    SmartRankingItem,
+    SmartSensitivityAnalysis,
+)
 
 
 class ReadOnlyFakeSession:
@@ -175,6 +184,135 @@ def test_dss_all_missing_data_returns_404(monkeypatch) -> None:
     assert response.json()["detail"] == "No ETF alternatives available for SMART ranking."
 
 
+def test_dss_sensitivity_success_response(monkeypatch) -> None:
+    monkeypatch.setattr(
+        dss_route,
+        "calculate_sensitivity_analysis_from_database",
+        fake_sensitivity,
+    )
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        response = TestClient(app).get("/api/dss/sensitivity")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()["as_of_date"] == "2026-08-21"
+
+
+def test_dss_sensitivity_profiles(monkeypatch) -> None:
+    monkeypatch.setattr(
+        dss_route,
+        "calculate_sensitivity_analysis_from_database",
+        fake_sensitivity,
+    )
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        payload = TestClient(app).get("/api/dss/sensitivity").json()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert payload["profiles"] == SMART_WEIGHT_PROFILES
+    assert set(payload["profiles"]) == {"BALANCED", "GROWTH", "RISK_AVERSE"}
+
+
+def test_dss_sensitivity_rank_changes(monkeypatch) -> None:
+    monkeypatch.setattr(
+        dss_route,
+        "calculate_sensitivity_analysis_from_database",
+        fake_sensitivity,
+    )
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        comparisons = TestClient(app).get("/api/dss/sensitivity").json()["comparisons"]
+    finally:
+        app.dependency_overrides.clear()
+
+    comparison_by_symbol = {item["symbol"]: item for item in comparisons}
+    assert comparison_by_symbol["FUEVN100"]["risk_averse_rank_change"] == 3
+    assert comparison_by_symbol["FUEVFVND"]["growth_rank_change"] == 0
+
+
+def test_dss_sensitivity_stability_summary(monkeypatch) -> None:
+    monkeypatch.setattr(
+        dss_route,
+        "calculate_sensitivity_analysis_from_database",
+        fake_sensitivity,
+    )
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        summary = TestClient(app).get("/api/dss/sensitivity").json()["stability_summary"]
+    finally:
+        app.dependency_overrides.clear()
+
+    assert summary == {
+        "top_etf_stable": True,
+        "max_absolute_rank_change": 3,
+        "growth_changed_count": 0,
+        "risk_averse_changed_count": 1,
+    }
+
+
+def test_dss_sensitivity_api_performs_no_database_writes(monkeypatch) -> None:
+    seen_session = None
+
+    def fake_service(db_session):
+        nonlocal seen_session
+        seen_session = db_session
+        return fake_sensitivity(db_session)
+
+    monkeypatch.setattr(
+        dss_route,
+        "calculate_sensitivity_analysis_from_database",
+        fake_service,
+    )
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        response = TestClient(app).get("/api/dss/sensitivity")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert isinstance(seen_session, ReadOnlyFakeSession)
+
+
+def test_dss_sensitivity_route_is_not_captured_by_symbol_route(monkeypatch) -> None:
+    calls = {"sensitivity": 0, "symbol": 0}
+
+    def fake_service(db_session):
+        calls["sensitivity"] += 1
+        return fake_sensitivity(db_session)
+
+    def fake_ranking_service(db_session):
+        calls["symbol"] += 1
+        raise AssertionError("Dynamic symbol route should not handle /sensitivity")
+
+    monkeypatch.setattr(
+        dss_route,
+        "calculate_sensitivity_analysis_from_database",
+        fake_service,
+    )
+    monkeypatch.setattr(
+        dss_route,
+        "calculate_smart_ranking_from_database",
+        fake_ranking_service,
+    )
+    app.dependency_overrides[get_db] = override_db
+
+    try:
+        response = TestClient(app).get("/api/dss/sensitivity")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert calls == {"sensitivity": 1, "symbol": 0}
+
+
 def test_dss_api_performs_no_database_writes(monkeypatch) -> None:
     seen_session = None
 
@@ -263,4 +401,52 @@ def fake_ranking(db_session) -> SmartRanking:
                 reasons=["Balanced SMART profile across the selected criteria."],
             ),
         ],
+    )
+
+
+def fake_sensitivity(db_session) -> SmartSensitivityAnalysis:
+    return SmartSensitivityAnalysis(
+        as_of_date=date(2026, 8, 21),
+        scenario_rankings={},
+        comparisons=[
+            SensitivityComparisonItem(
+                symbol="E1VFVN30",
+                balanced_score=77.85,
+                balanced_rank=1,
+                growth_score=78.89,
+                growth_rank=1,
+                risk_averse_score=76.15,
+                risk_averse_rank=1,
+                growth_rank_change=0,
+                risk_averse_rank_change=0,
+            ),
+            SensitivityComparisonItem(
+                symbol="FUEVFVND",
+                balanced_score=66.12,
+                balanced_rank=2,
+                growth_score=78.73,
+                growth_rank=2,
+                risk_averse_score=50.04,
+                risk_averse_rank=3,
+                growth_rank_change=0,
+                risk_averse_rank_change=-1,
+            ),
+            SensitivityComparisonItem(
+                symbol="FUEVN100",
+                balanced_score=36.0,
+                balanced_rank=5,
+                growth_score=21.0,
+                growth_rank=5,
+                risk_averse_score=56.0,
+                risk_averse_rank=2,
+                growth_rank_change=0,
+                risk_averse_rank_change=3,
+            ),
+        ],
+        stability_summary=SensitivityStabilitySummary(
+            top_etf_stable=True,
+            max_absolute_rank_change=3,
+            growth_changed_count=0,
+            risk_averse_changed_count=1,
+        ),
     )

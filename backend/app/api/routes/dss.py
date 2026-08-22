@@ -2,12 +2,20 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import get_db
-from app.schemas.dss import CriterionDetail, DSSRankingItem, DSSRankingResponse
+from app.schemas.dss import (
+    CriterionDetail,
+    DSSRankingItem,
+    DSSRankingResponse,
+    DSSSensitivityResponse,
+)
 from app.services.dss_service import (
     DSSDataError,
     SMART_CRITERIA,
+    SMART_WEIGHT_PROFILES,
     SmartRanking,
     SmartRankingItem,
+    SmartSensitivityAnalysis,
+    calculate_sensitivity_analysis_from_database,
     calculate_smart_ranking_from_database,
 )
 
@@ -22,6 +30,18 @@ def get_dss_ranking(db_session: Session = Depends(get_db)) -> DSSRankingResponse
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     return _build_ranking_response(ranking)
+
+
+@router.get("/sensitivity", response_model=DSSSensitivityResponse)
+def get_dss_sensitivity(
+    db_session: Session = Depends(get_db),
+) -> DSSSensitivityResponse:
+    try:
+        sensitivity = calculate_sensitivity_analysis_from_database(db_session)
+    except DSSDataError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+    return _build_sensitivity_response(sensitivity)
 
 
 @router.get("/{symbol}", response_model=DSSRankingItem)
@@ -72,4 +92,37 @@ def _build_ranking_item(item: SmartRankingItem) -> DSSRankingItem:
         smart_score=item.smart_score,
         criteria=criteria,
         reasons=item.reasons,
+    )
+
+
+def _build_sensitivity_response(
+    sensitivity: SmartSensitivityAnalysis,
+) -> DSSSensitivityResponse:
+    return DSSSensitivityResponse(
+        as_of_date=sensitivity.as_of_date,
+        profiles=SMART_WEIGHT_PROFILES,
+        comparisons=[
+            {
+                "symbol": item.symbol,
+                "balanced_score": item.balanced_score,
+                "balanced_rank": item.balanced_rank,
+                "growth_score": item.growth_score,
+                "growth_rank": item.growth_rank,
+                "growth_rank_change": item.growth_rank_change,
+                "risk_averse_score": item.risk_averse_score,
+                "risk_averse_rank": item.risk_averse_rank,
+                "risk_averse_rank_change": item.risk_averse_rank_change,
+            }
+            for item in sensitivity.comparisons
+        ],
+        stability_summary={
+            "top_etf_stable": sensitivity.stability_summary.top_etf_stable,
+            "max_absolute_rank_change": (
+                sensitivity.stability_summary.max_absolute_rank_change
+            ),
+            "growth_changed_count": sensitivity.stability_summary.growth_changed_count,
+            "risk_averse_changed_count": (
+                sensitivity.stability_summary.risk_averse_changed_count
+            ),
+        },
     )

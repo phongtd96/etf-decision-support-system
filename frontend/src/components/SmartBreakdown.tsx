@@ -9,8 +9,8 @@ import {
 } from "recharts";
 
 import type { DSSRankingItem } from "../types/dss";
+import { criterionLabels, formatCriterionRawValue } from "../utils/criteria";
 import {
-  formatInteger,
   formatNullableNumber,
   formatPercent,
   formatSmartScore,
@@ -20,16 +20,8 @@ interface SmartBreakdownProps {
   dss: DSSRankingItem;
 }
 
-const criteriaLabels: Record<string, string> = {
-  technical_momentum: "Technical Momentum",
-  return_20d: "Return 20D",
-  volatility_20d: "Volatility 20D",
-  max_drawdown_60d: "Max Drawdown 60D",
-  avg_volume_20d: "Average Volume 20D",
-};
-
 export function SmartBreakdown({ dss }: SmartBreakdownProps) {
-  const rows = Object.entries(criteriaLabels).map(([key, label]) => ({
+  const rows = Object.entries(criterionLabels).map(([key, label]) => ({
     key,
     label,
     detail: dss.criteria[key],
@@ -102,14 +94,4 @@ export function SmartBreakdown({ dss }: SmartBreakdownProps) {
       </div>
     </section>
   );
-}
-
-function formatCriterionRawValue(key: string, value: number): string {
-  if (key === "return_20d" || key === "volatility_20d" || key === "max_drawdown_60d") {
-    return formatPercent(value);
-  }
-  if (key === "avg_volume_20d") {
-    return formatInteger(value);
-  }
-  return formatSmartScore(value);
 }

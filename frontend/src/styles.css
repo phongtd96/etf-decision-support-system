@@ -32,6 +32,10 @@ a {
   border-bottom: 1px solid #d8deea;
   background: #ffffff;
   padding: 24px 40px;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: center;
 }
 
 .brand {
@@ -45,6 +49,27 @@ a {
   margin: 6px 0 0;
   color: #667085;
   font-size: 15px;
+}
+
+.top-nav {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.top-nav a {
+  border-radius: 8px;
+  color: #475467;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 12px;
+  text-decoration: none;
+}
+
+.top-nav a.active,
+.top-nav a:hover {
+  background: #eff6ff;
+  color: #1d4ed8;
 }
 
 .main-content {
@@ -294,6 +319,81 @@ a {
   margin-top: 10px;
 }
 
+.selector-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.selector-option {
+  border: 1px solid #dce3ef;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #344054;
+  cursor: pointer;
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.selector-option:has(input:checked) {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.selector-option input {
+  accent-color: #2563eb;
+}
+
+.inline-warning,
+.muted-text {
+  margin: 14px 0 0;
+  color: #667085;
+  font-size: 14px;
+}
+
+.profile-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.weight-list {
+  margin: 14px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.weight-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-top: 1px solid #e5eaf2;
+  padding: 8px 0;
+  color: #475467;
+  font-size: 13px;
+}
+
+.weight-list li:first-child {
+  border-top: 0;
+}
+
+.weight-list b {
+  color: #172033;
+}
+
+.rank-up {
+  color: #047857;
+  font-weight: 800;
+}
+
+.rank-down {
+  color: #b42318;
+  font-weight: 800;
+}
+
 .footer-note {
   border-top: 1px solid #d8deea;
   color: #667085;
@@ -308,6 +408,10 @@ a {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .profile-grid {
+    grid-template-columns: 1fr;
+  }
+
   .indicator-grid,
   .breakdown-grid {
     grid-template-columns: 1fr;
@@ -320,6 +424,16 @@ a {
   .footer-note {
     padding-left: 18px;
     padding-right: 18px;
+  }
+
+  .top-bar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .top-nav {
+    width: 100%;
+    overflow-x: auto;
   }
 
   .brand {

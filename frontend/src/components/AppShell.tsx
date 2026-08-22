@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 
 interface AppShellProps {
   children: ReactNode;
@@ -15,6 +15,13 @@ export function AppShell({ children }: AppShellProps) {
           </Link>
           <p className="subtitle">Vietnamese ETF Analysis & SMART Decision Support</p>
         </div>
+        <nav className="top-nav" aria-label="Primary navigation">
+          <NavLink to="/" end>
+            Dashboard
+          </NavLink>
+          <NavLink to="/compare">Compare</NavLink>
+          <NavLink to="/sensitivity">Sensitivity</NavLink>
+        </nav>
       </header>
 
       <main className="main-content">{children}</main>
