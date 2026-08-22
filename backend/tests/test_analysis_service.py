@@ -6,11 +6,13 @@ import pytest
 
 from app.services.analysis_service import (
     INDICATOR_COLUMNS,
+    LatestTechnicalAnalysis,
     TechnicalIndicatorError,
     TechnicalAnalysisNotFoundError,
     TechnicalSignal,
     calculate_technical_indicators,
     get_latest_technical_analysis,
+    get_technical_ranking,
     map_score_to_signal,
     normalize_price_history,
     save_technical_indicators,
@@ -238,3 +240,136 @@ def test_missing_indicator_handling() -> None:
 
     with pytest.raises(TechnicalAnalysisNotFoundError, match="No technical indicator"):
         get_latest_technical_analysis(FakeSession(), "E1VFVN30")
+
+
+def latest_analysis(
+    symbol: str,
+    score: float,
+    analysis_date: date = date(2026, 8, 21),
+) -> LatestTechnicalAnalysis:
+    return LatestTechnicalAnalysis(
+        symbol=symbol,
+        date=analysis_date,
+        technical_score=score,
+        technical_signal=map_score_to_signal(score),
+        indicators={
+            "sma_20": 20.0,
+            "sma_50": 18.0,
+            "rsi_14": 60.0,
+            "macd": 1.2,
+            "macd_signal": 0.8,
+            "volatility_20": 0.18,
+        },
+        reasons=[],
+    )
+
+
+def test_ranking_sorted_by_score_descending(monkeypatch) -> None:
+    analyses = {
+        "E1VFVN30": latest_analysis("E1VFVN30", 60),
+        "FUEVFVND": latest_analysis("FUEVFVND", 90),
+        "FUEVN100": latest_analysis("FUEVN100", 75),
+    }
+
+    monkeypatch.setattr(
+        "app.services.analysis_service.get_latest_technical_analysis",
+        lambda db_session, symbol: analyses[symbol],
+    )
+
+    ranking = get_technical_ranking(None, symbols=list(analyses))
+
+    assert [item.symbol for item in ranking.rankings] == [
+        "FUEVFVND",
+        "FUEVN100",
+        "E1VFVN30",
+    ]
+
+
+def test_equal_ranking_scores_sort_by_symbol(monkeypatch) -> None:
+    analyses = {
+        "FUEVFVND": latest_analysis("FUEVFVND", 70),
+        "E1VFVN30": latest_analysis("E1VFVN30", 70),
+        "FUEDCMID": latest_analysis("FUEDCMID", 70),
+    }
+
+    monkeypatch.setattr(
+        "app.services.analysis_service.get_latest_technical_analysis",
+        lambda db_session, symbol: analyses[symbol],
+    )
+
+    ranking = get_technical_ranking(None, symbols=list(analyses))
+
+    assert [item.symbol for item in ranking.rankings] == [
+        "E1VFVN30",
+        "FUEDCMID",
+        "FUEVFVND",
+    ]
+
+
+def test_ranking_ranks_begin_at_one(monkeypatch) -> None:
+    analyses = {
+        "E1VFVN30": latest_analysis("E1VFVN30", 80),
+        "FUEVFVND": latest_analysis("FUEVFVND", 70),
+    }
+
+    monkeypatch.setattr(
+        "app.services.analysis_service.get_latest_technical_analysis",
+        lambda db_session, symbol: analyses[symbol],
+    )
+
+    ranking = get_technical_ranking(None, symbols=list(analyses))
+
+    assert [item.rank for item in ranking.rankings] == [1, 2]
+
+
+def test_ranking_skips_missing_etf_data(monkeypatch) -> None:
+    analyses = {
+        "E1VFVN30": latest_analysis("E1VFVN30", 80),
+        "FUEVFVND": TechnicalAnalysisNotFoundError("missing"),
+        "FUEVN100": latest_analysis("FUEVN100", 70),
+    }
+
+    def fake_latest(db_session, symbol: str):
+        result = analyses[symbol]
+        if isinstance(result, TechnicalAnalysisNotFoundError):
+            raise result
+        return result
+
+    monkeypatch.setattr(
+        "app.services.analysis_service.get_latest_technical_analysis",
+        fake_latest,
+    )
+
+    ranking = get_technical_ranking(None, symbols=list(analyses))
+
+    assert [item.symbol for item in ranking.rankings] == ["E1VFVN30", "FUEVN100"]
+    assert ranking.as_of_date == date(2026, 8, 21)
+
+
+def test_ranking_all_missing_data_raises_error(monkeypatch) -> None:
+    def fake_latest(db_session, symbol: str):
+        raise TechnicalAnalysisNotFoundError("missing")
+
+    monkeypatch.setattr(
+        "app.services.analysis_service.get_latest_technical_analysis",
+        fake_latest,
+    )
+
+    with pytest.raises(TechnicalAnalysisNotFoundError, match="No technical analysis"):
+        get_technical_ranking(None, symbols=["E1VFVN30", "FUEVFVND"])
+
+
+def test_ranking_as_of_date_uses_max_latest_analysis_date(monkeypatch) -> None:
+    analyses = {
+        "E1VFVN30": latest_analysis("E1VFVN30", 80, date(2026, 8, 20)),
+        "FUEVFVND": latest_analysis("FUEVFVND", 70, date(2026, 8, 21)),
+    }
+
+    monkeypatch.setattr(
+        "app.services.analysis_service.get_latest_technical_analysis",
+        lambda db_session, symbol: analyses[symbol],
+    )
+
+    ranking = get_technical_ranking(None, symbols=list(analyses))
+
+    assert ranking.as_of_date == date(2026, 8, 21)

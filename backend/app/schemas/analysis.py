@@ -19,3 +19,16 @@ class TechnicalAnalysisResponse(BaseModel):
     technical_signal: str
     indicators: TechnicalIndicatorValues
     reasons: list[str]
+
+
+class TechnicalRankingItem(BaseModel):
+    rank: int
+    symbol: str
+    date: date
+    technical_score: float
+    technical_signal: str
+
+
+class TechnicalRankingResponse(BaseModel):
+    as_of_date: date
+    rankings: list[TechnicalRankingItem]

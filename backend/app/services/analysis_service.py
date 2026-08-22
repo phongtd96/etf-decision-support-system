@@ -24,6 +24,13 @@ INDICATOR_COLUMNS = [
     "macd_signal",
     "volatility_20",
 ]
+SUPPORTED_ETF_SYMBOLS = [
+    "E1VFVN30",
+    "FUEVFVND",
+    "FUEVN100",
+    "FUEDCMID",
+    "FUESSVFL",
+]
 TREND_WEIGHT = 30.0
 RSI_WEIGHT = 25.0
 MACD_WEIGHT = 25.0
@@ -73,6 +80,21 @@ class LatestTechnicalAnalysis:
     reasons: list[str]
 
 
+@dataclass(frozen=True)
+class TechnicalRankingItem:
+    rank: int
+    symbol: str
+    date: date
+    technical_score: float
+    technical_signal: TechnicalSignal
+
+
+@dataclass(frozen=True)
+class TechnicalRanking:
+    as_of_date: date
+    rankings: list[TechnicalRankingItem]
+
+
 def load_price_history(db_session: Session, symbol: str) -> pd.DataFrame:
     statement = (
         select(
@@ -85,6 +107,43 @@ def load_price_history(db_session: Session, symbol: str) -> pd.DataFrame:
     )
     rows = db_session.execute(statement).all()
     return pd.DataFrame(rows, columns=["date", "close"])
+
+
+def get_technical_ranking(
+    db_session: Session,
+    symbols: list[str] | None = None,
+) -> TechnicalRanking:
+    symbols_to_rank = symbols or SUPPORTED_ETF_SYMBOLS
+    analyses: list[LatestTechnicalAnalysis] = []
+
+    for symbol in symbols_to_rank:
+        try:
+            analyses.append(get_latest_technical_analysis(db_session, symbol))
+        except TechnicalAnalysisNotFoundError:
+            continue
+
+    if not analyses:
+        raise TechnicalAnalysisNotFoundError("No technical analysis data available.")
+
+    sorted_analyses = sorted(
+        analyses,
+        key=lambda analysis: (-analysis.technical_score, analysis.symbol),
+    )
+    rankings = [
+        TechnicalRankingItem(
+            rank=index,
+            symbol=analysis.symbol,
+            date=analysis.date,
+            technical_score=analysis.technical_score,
+            technical_signal=analysis.technical_signal,
+        )
+        for index, analysis in enumerate(sorted_analyses, start=1)
+    ]
+
+    return TechnicalRanking(
+        as_of_date=max(analysis.date for analysis in analyses),
+        rankings=rankings,
+    )
 
 
 def get_latest_technical_analysis(
